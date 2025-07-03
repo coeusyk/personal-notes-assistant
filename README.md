@@ -43,12 +43,14 @@ Before you begin, ensure you have the following installed:
     ```
 
 2.  **Run Milvus with Docker**
+
     This project includes a `docker-compose.yml` file to run a Milvus instance.
     ```bash
     docker-compose up -d
     ```
 
 3.  **Install Python Dependencies**
+
     This project uses `uv` to manage dependencies in a virtual environment.
     ```bash
     # Create a virtual environment
