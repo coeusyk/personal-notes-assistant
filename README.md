@@ -28,7 +28,7 @@ Before you begin, ensure you have the following installed:
 
 1.  **Clone the Repository**
     ```bash
-    git clone <your-repository-url>
+    git clone https://github.com/coeusyk/personal-notes-assistant.git
     cd personal-notes-assistant
     ```
 
