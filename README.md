@@ -67,6 +67,7 @@ Before you begin, ensure you have the following installed:
     ```
 
 5.  **Configure Environment Variables**
+
     Create a `.env` file by copying the sample file. This is where you will configure the application.
     ```bash
     cp .env.sample .env
@@ -82,9 +83,11 @@ You must choose between using Ollama (for local models) or OpenAI.
 To use a local model running on your machine, you first need to install Ollama.
 
 1.  **Install Ollama:**
+
     Download and install Ollama for your operating system from the [official website](https://ollama.com/).
 
 2.  **Download an LLM:**
+
     After installing Ollama, you need to pull a model. Open your terminal and run the following command. For example, to download the `mistral:7b-instruct` model:
     ```bash
     ollama pull mistral:7b-instruct
