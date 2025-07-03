@@ -6,6 +6,16 @@ Large Language Model (LLM) via Ollama or the OpenAI API.
 
 The server automatically watches your vault for changes and keeps the knowledge base synchronized in real-time.
 
+## Table of Contents
+
+- [Features](#features)
+- [Prerequisites](#prerequisites)
+- [Setup & Installation](#setup--installation)
+- [LLM Provider Configuration](#llm-provider-configuration)
+  - [Using Ollama](#option-1-using-ollama-default)
+  - [Using OpenAI](#option-2-using-openai)
+- [Running the Server](#running-the-server)
+
 ## Features
 
 *   **Obsidian Integration**: Directly connects to and indexes your Obsidian vault.
@@ -77,7 +87,7 @@ Before you begin, ensure you have the following installed:
 
 You must choose between using Ollama (for local models) or OpenAI.
 
-#### Option 1: Using Ollama (Default)
+### Option 1: Using Ollama (Default)
 
 To use a local model running on your machine, you first need to install Ollama.
 
@@ -108,7 +118,7 @@ To use a local model running on your machine, you first need to install Ollama.
     MILVUS_PORT=19530
     ```
 
-#### Option 2: Using OpenAI
+### Option 2: Using OpenAI
 
 To use OpenAI's models, you will need an API key.
 
