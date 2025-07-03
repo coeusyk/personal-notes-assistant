@@ -73,7 +73,7 @@ Before you begin, ensure you have the following installed:
     Then, visit the [official PyTorch website](https://pytorch.org/get-started/locally/) to find the correct installation command for your specific system and CUDA version. For example, the command might look like this:
     ```bash
     # Example command, check the official website for the correct one for your setup
-    uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+    uv pip install torch --index-url https://download.pytorch.org/whl/cu121
     ```
 
 5.  **Configure Environment Variables**
