@@ -105,6 +105,7 @@ To use a local model running on your machine, you first need to install Ollama.
     Ensure the Ollama application is running. You can find other models in the [Ollama library](https://ollama.com/library).
 
 3.  **Configure your `.env` file for Ollama:**
+
     ```env
     # --- Required Settings ---
     OBSIDIAN_VAULT_PATH="C:/Path/To/Your/Vault"
@@ -126,6 +127,7 @@ To use a local model running on your machine, you first need to install Ollama.
 To use OpenAI's models, you will need an API key.
 
 1.  **Configure your `.env` file for OpenAI:**
+
     ```env
     # --- Required Settings ---
     OBSIDIAN_VAULT_PATH="C:/Path/To/Your/Vault"
