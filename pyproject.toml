@@ -1,6 +1,18 @@
 [project]
-name = "milvus-rag"
+name = "personal-notes-assistant"
 version = "0.1.0"
-description = "Add your description here"
+description = "A RAG server for your Obsidian vault."
 requires-python = ">=3.12"
-dependencies = []
+
+dependencies = [
+    "python-dotenv",
+    "openai",
+    "ollama",
+    "torch",
+    "pymilvus",
+    "sentence-transformers",
+    "watchdog",
+    "PyYAML",
+    "mcp-server",
+    "colorlog"
+]

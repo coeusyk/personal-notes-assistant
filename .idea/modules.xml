@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/milvus-rag.iml" filepath="$PROJECT_DIR$/.idea/milvus-rag.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/personal-notes-assistant.iml" filepath="$PROJECT_DIR$/.idea/personal-notes-assistant.iml" />
     </modules>
   </component>
 </project>
