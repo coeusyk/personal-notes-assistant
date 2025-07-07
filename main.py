@@ -78,7 +78,7 @@ async def main():
         server_version = "0.0.0"
 
     # Running the MCP server:
-    async with stdio_server(encoding='utf-8') as (read_stream, write_stream):
+    async with stdio_server() as (read_stream, write_stream):
         await server.run(
             read_stream,
             write_stream,

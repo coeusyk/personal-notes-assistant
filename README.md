@@ -15,6 +15,7 @@ The server automatically watches your vault for changes and keeps the knowledge 
   - [Using Ollama](#option-1-using-ollama-default)
   - [Using OpenAI](#option-2-using-openai)
 - [Running the Server](#running-the-server)
+- [Usage with Claude Desktop](#usage-with-claude-desktop)
 
 ## Features
 
@@ -153,3 +154,63 @@ With the services running and your `.env` file configured, start the main applic
 ```bash
 python main.py
 ```
+
+Keep this process running while you interact with it from clients such as Claude Desktop.
+
+## Usage with Claude Desktop
+
+You can drive this server directly from [Anthropic’s Claude Desktop](https://claude.ai/download) via the Model‑Context Protocol (MCP). Claude automatically discovers servers declared in its configuration.
+
+### 1. Configure Claude Desktop
+
+First, edit (or create) the `claude_desktop_config.json` file in the appropriate location for your operating system:
+
+*   **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+*   **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+
+Add (or merge) the following JSON configuration. This tells Claude how to find and run the project.
+
+```json
+{
+  "mcpServers": {
+    "obsidian-rag": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "<PATH_TO_PERSONAL_NOTES_ASSISTANT>",
+        "run",
+        "main.py"
+      ],
+      "env": {
+        "OBSIDIAN_VAULT_PATH": "<PATH_TO_OBSIDIAN_VAULT>",
+        "MILVUS_HOST": "localhost",
+        "MILVUS_PORT": "19530"
+      }
+    }
+  }
+}
+```
+
+You must replace the placeholder values and configure the environment variables:
+
+| Placeholder                          | Description                                        |
+| ------------------------------------ | -------------------------------------------------- |
+| `<PATH_TO_PERSONAL_NOTES_ASSISTANT>` | The absolute path to this project's root directory. |
+| `<PATH_TO_OBSIDIAN_VAULT>`           | The absolute path to your Obsidian vault.          |
+
+**Important**: Configure your LLM provider within the `env` block above. The example uses Ollama. If you are using OpenAI, you would set `LLM_PROVIDER` to `openai` and add your `OPENAI_API_KEY`.
+
+### 2. Restart Claude Desktop
+
+Fully quit and relaunch the Claude Desktop application. When the hammer/tool icon appears in the message composer, the server has been detected and is ready.
+
+### 3. Chat with Your Notes
+
+Ask Claude questions like, "Search my vault for Vector Databases." Claude will transparently invoke the `obsidian-rag` tool and include answers sourced directly from your notes in its response.
+
+### How It Works
+
+1.  Claude identifies that your query could be answered by one of its available tools.
+2.  It calls the `search_notes` MCP tool exposed by this server.
+3.  The server retrieves relevant note chunks from Milvus and synthesizes an answer using your configured LLM.
+4.  Claude merges that answer into its final response back to you.
