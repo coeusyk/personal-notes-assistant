@@ -3,6 +3,7 @@
 .idea/
 .venv/
 
+docs/
 volumes/
 
 *.egg-info/

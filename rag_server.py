@@ -21,7 +21,18 @@ from watchdog.events import FileSystemEventHandler
 logger = logging.getLogger("obsidian-rag")
 
 
+def _escape_milvus_string(value: str) -> str:
+    """Escapes a string for safe interpolation into a Milvus boolean expr."""
+    return value.replace('\\', '\\\\').replace('"', '\\"')
+
+
 class ObsidianRAGServer:
+    embedding_model: Any | None
+    collection: Any | None
+    llm_client: Any | None
+    embedding_dim: int | None
+    llm_model: str | None
+
     def __init__(self, vault_path: str, milvus_host: str = "localhost", milvus_port: int = 19530):
         self.vault_path = Path(vault_path)
         self.milvus_host = milvus_host
@@ -30,6 +41,7 @@ class ObsidianRAGServer:
         self.embedding_model = None
         self.collection = None
         self.llm_client = None
+        self.embedding_dim: int | None = None
 
         # LLM Configuration:
         self.llm_provider = os.getenv("LLM_PROVIDER", "ollama").lower()
@@ -158,28 +170,24 @@ class ObsidianRAGServer:
             def __init__(self, server):
                 self.server = server
 
-            def on_modified(self, event):
+            def _handle(self, event):
                 if not event.is_directory and event.src_path.endswith('.md'):
-                    # Use call_soon_threadsafe to schedule the coroutine in the main event loop
+                    # Use run_coroutine_threadsafe to schedule the coroutine in the main event loop
                     asyncio.run_coroutine_threadsafe(
                         self.server._update_note(event.src_path),
                         self.server.loop
                     )
 
-            def on_created(self, event):
-                if not event.is_directory and event.src_path.endswith('.md'):
-                    # Use call_soon_threadsafe to schedule the coroutine in the main event loop
-                    asyncio.run_coroutine_threadsafe(
-                        self.server._update_note(event.src_path),
-                        self.server.loop
-                    )
+            on_modified = _handle
+            on_created = _handle
+            on_deleted = _handle
 
         self.observer = Observer()
         self.observer.schedule(VaultHandler(self), str(self.vault_path), recursive=True)
         self.observer.start()
         logger.info("File watcher started")
 
-    def _parse_markdown_file(self, file_path: Path) -> dict[str, str | None | Any] | None:
+    def _parse_markdown_file(self, file_path: Path) -> dict[str, str] | None:
         """Parse Obsidian markdown file and extract metadata"""
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
@@ -196,12 +204,13 @@ class ObsidianRAGServer:
                     except yaml.YAMLError:
                         pass
 
-            # Extract title (from frontmatter or first heading or filename)
-            title = frontmatter.get('title') or file_path.stem
+            # Extract title (from frontmatter, then first heading, then filename)
+            title = frontmatter.get('title')
             if not title and content:
                 heading_match = re.search(r'^#\s+(.+)$', content, re.MULTILINE)
                 if heading_match:
                     title = heading_match.group(1)
+            title = title or file_path.stem
 
             # Extract tags
             tags = frontmatter.get('tags', [])
@@ -261,10 +270,15 @@ class ObsidianRAGServer:
 
         return chunks if chunks else [content]
 
-    async def _update_note(self, file_path: str):
+    async def _update_note(self, file_path: str | Path):
         """Update a single note in the vector database"""
         try:
             file_path = Path(file_path)
+            collection = self.collection
+            embedding_model = self.embedding_model
+            if collection is None or embedding_model is None:
+                raise RuntimeError("RAG server is not initialized.")
+
             if not file_path.exists():
                 # File deleted, remove from database
                 relative_path = file_path.relative_to(self.vault_path).as_posix()
@@ -276,8 +290,8 @@ class ObsidianRAGServer:
                 return
 
             # Check if content changed
-            expr = f'file_path == "{note_data["file_path"]}" and chunk_index == 0'
-            existing = self.collection.query(
+            expr = f'file_path == "{_escape_milvus_string(note_data["file_path"])}" and chunk_index == 0'
+            existing = collection.query(
                 expr=expr,
                 output_fields=["content_hash"]
             )
@@ -308,7 +322,7 @@ class ObsidianRAGServer:
                 if not chunk.strip():  # Skip empty chunks
                     continue
 
-                embedding = self.embedding_model.encode([chunk])[0].tolist()
+                embedding = embedding_model.encode([chunk])[0].tolist()
 
                 file_paths.append(note_data['file_path'])
                 contents.append(chunk)
@@ -334,7 +348,8 @@ class ObsidianRAGServer:
                     chunk_indices
                 ]
 
-                self.collection.insert(data)
+                collection.insert(data)
+                collection.flush()
                 logger.info(f"Successfully updated note: {note_data['file_path']} ({len(file_paths)} chunks)")
 
         except Exception as e:
@@ -344,8 +359,12 @@ class ObsidianRAGServer:
     async def _remove_note(self, file_path: str):
         """Remove note from vector database"""
         try:
-            normalized_path = file_path.replace('\\', '/')
-            self.collection.delete(expr=f'file_path == "{normalized_path}"')
+            collection = self.collection
+            if collection is None:
+                raise RuntimeError("RAG server is not initialized.")
+
+            normalized_path = Path(file_path).as_posix()
+            collection.delete(expr=f'file_path == "{_escape_milvus_string(normalized_path)}"')
             logger.info(f"Removed note: {file_path}")
 
         except Exception as e:
@@ -363,7 +382,7 @@ class ObsidianRAGServer:
             batch = md_files[i:i + batch_size]
             for file_path in batch:
                 try:
-                    await self._update_note(str(file_path))
+                    await self._update_note(file_path)
 
                 except Exception as e:
                     logger.error(f"Failed to process {file_path}: {e}")
@@ -374,11 +393,16 @@ class ObsidianRAGServer:
     async def search_similar_notes(self, query: str, top_k: int = 5) -> List[Dict]:
         """Search for similar notes using vector similarity"""
         try:
-            query_embedding = self.embedding_model.encode([query])[0].tolist()
+            collection = self.collection
+            embedding_model = self.embedding_model
+            if collection is None or embedding_model is None:
+                raise RuntimeError("RAG server is not initialized.")
+
+            query_embedding = embedding_model.encode([query])[0].tolist()
 
             # More lenient search parameters
             search_params = {"metric_type": "COSINE", "params": {"nprobe": 50}}
-            results = self.collection.search(
+            results = collection.search(
                 [query_embedding],
                 "embedding",
                 search_params,
@@ -433,8 +457,14 @@ Question: {question}
 
 Answer based on the notes above:"""
 
-            response = self.llm_client.chat.completions.create(
-                model=self.llm_model,
+            if self.llm_client is None or self.llm_model is None:
+                raise RuntimeError("LLM client is not configured.")
+
+            llm_client = self.llm_client
+            llm_model = self.llm_model
+
+            response = llm_client.chat.completions.create(
+                model=llm_model,
                 messages=[
                     {"role": "system",
                      "content": "You are a helpful assistant that answers based on the provided notes."},
@@ -453,12 +483,16 @@ Answer based on the notes above:"""
     async def get_note_content(self, file_path: str) -> str:
         """Get the full content of a specific note"""
         try:
+            collection = self.collection
+            if collection is None:
+                raise RuntimeError("RAG server is not initialized.")
+
             # Normalize incoming path to use forward slashes for the query
-            normalized_path = file_path.replace('\\', '/')
+            normalized_path = Path(file_path).as_posix()
 
             # Query all chunks for this file
-            results = self.collection.query(
-                expr=f'file_path == "{normalized_path}"',
+            results = collection.query(
+                expr=f'file_path == "{_escape_milvus_string(normalized_path)}"',
                 output_fields=["content", "chunk_index"],
                 limit=1000  # Should be enough for most notes
             )

@@ -16,7 +16,7 @@ dependencies = [
     "sentence-transformers",
     "watchdog",
     "PyYAML",
-    "mcp",
+    "fastmcp",
     "colorlog"
 ]
 
