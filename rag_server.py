@@ -8,7 +8,7 @@ import openai
 import torch
 
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 from datetime import datetime
 
 from pymilvus import connections, Collection, CollectionSchema, FieldSchema, DataType, utility
@@ -27,12 +27,6 @@ def _escape_milvus_string(value: str) -> str:
 
 
 class ObsidianRAGServer:
-    embedding_model: Any | None
-    collection: Any | None
-    llm_client: Any | None
-    embedding_dim: int | None
-    llm_model: str | None
-
     def __init__(self, vault_path: str, milvus_host: str = "localhost", milvus_port: int = 19530):
         self.vault_path = Path(vault_path)
         self.milvus_host = milvus_host
@@ -184,8 +178,13 @@ class ObsidianRAGServer:
 
         self.observer = Observer()
         self.observer.schedule(VaultHandler(self), str(self.vault_path), recursive=True)
-        self.observer.start()
-        logger.info("File watcher started")
+        try:
+            self.observer.start()
+            logger.info("File watcher started")
+        except OSError as e:
+            # ponytail: some filesystems (e.g. WSL DrvFs/9p mounts) don't support inotify
+            logger.warning(f"File watcher unavailable on this filesystem, live updates disabled: {e}")
+            self.observer = None
 
     def _parse_markdown_file(self, file_path: Path) -> dict[str, str] | None:
         """Parse Obsidian markdown file and extract metadata"""
@@ -243,7 +242,7 @@ class ObsidianRAGServer:
             return None
 
     @staticmethod
-    def _chunk_content(content: str, max_chunk_size: int = 1500) -> List[str]:
+    def _chunk_content(content: str, max_chunk_size: int = 1500) -> list[str]:
         """Split content into chunks while preserving structure"""
         # Simple chunking by paragraphs and size
         if not content.strip():
@@ -270,7 +269,7 @@ class ObsidianRAGServer:
 
         return chunks if chunks else [content]
 
-    async def _update_note(self, file_path: str | Path):
+    async def _update_note(self, file_path: str | Path, flush: bool = True):
         """Update a single note in the vector database"""
         try:
             file_path = Path(file_path)
@@ -300,39 +299,28 @@ class ObsidianRAGServer:
                 logger.info(f"No changes detected for: {note_data['file_path']}")
                 return
 
-            # Remove existing entries for this file
-            await self._remove_note(note_data['file_path'])
+            # Remove existing entries for this file, if any (nothing to remove for a brand-new file)
+            if existing:
+                await self._remove_note(note_data['file_path'])
 
             # Chunk content and create embeddings
             chunks = self._chunk_content(note_data['content'])
             logger.info(f"Processing {len(chunks)} chunks for: {note_data['file_path']}")
 
             # Prepare data for batch insert
-            file_paths = []
-            contents = []
-            embeddings = []
-            titles = []
-            tags_list = []
-            created_ats = []
-            modified_ats = []
-            content_hashes = []
-            chunk_indices = []
+            non_empty_chunks = [(i, chunk) for i, chunk in enumerate(chunks) if chunk.strip()]
+            chunk_indices = [i for i, _ in non_empty_chunks]
+            contents = [chunk for _, chunk in non_empty_chunks]
 
-            for i, chunk in enumerate(chunks):
-                if not chunk.strip():  # Skip empty chunks
-                    continue
+            # Batch-encode all chunks in one call instead of one-at-a-time
+            embeddings = embedding_model.encode(contents).tolist() if contents else []
 
-                embedding = embedding_model.encode([chunk])[0].tolist()
-
-                file_paths.append(note_data['file_path'])
-                contents.append(chunk)
-                embeddings.append(embedding)
-                titles.append(note_data['title'])
-                tags_list.append(note_data['tags'])
-                created_ats.append(note_data['created_at'])
-                modified_ats.append(note_data['modified_at'])
-                content_hashes.append(note_data['content_hash'])
-                chunk_indices.append(i)
+            file_paths = [note_data['file_path']] * len(contents)
+            titles = [note_data['title']] * len(contents)
+            tags_list = [note_data['tags']] * len(contents)
+            created_ats = [note_data['created_at']] * len(contents)
+            modified_ats = [note_data['modified_at']] * len(contents)
+            content_hashes = [note_data['content_hash']] * len(contents)
 
             # Insert all chunks at once
             if file_paths:  # Only insert if we have data
@@ -349,7 +337,8 @@ class ObsidianRAGServer:
                 ]
 
                 collection.insert(data)
-                collection.flush()
+                if flush:
+                    collection.flush()
                 logger.info(f"Successfully updated note: {note_data['file_path']} ({len(file_paths)} chunks)")
 
         except Exception as e:
@@ -382,15 +371,19 @@ class ObsidianRAGServer:
             batch = md_files[i:i + batch_size]
             for file_path in batch:
                 try:
-                    await self._update_note(file_path)
+                    # ponytail: flush once per batch instead of per file, cuts bulk-ingest
+                    # time dramatically since each flush forces Milvus to seal a segment
+                    await self._update_note(file_path, flush=False)
 
                 except Exception as e:
                     logger.error(f"Failed to process {file_path}: {e}")
                     continue
 
+            self.collection.flush()
+
         logger.info(f"Completed ingesting {len(md_files)} files")
 
-    async def search_similar_notes(self, query: str, top_k: int = 5) -> List[Dict]:
+    async def search_similar_notes(self, query: str, top_k: int = 5) -> list[dict]:
         """Search for similar notes using vector similarity"""
         try:
             collection = self.collection
