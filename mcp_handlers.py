@@ -63,3 +63,8 @@ def register_tools(mcp: FastMCP):
     async def get_note_content(ctx: Context, file_path: str) -> str:
         """Get the full content of a specific note"""
         return await _rag(ctx).get_note_content(file_path)
+
+    @mcp.tool
+    async def vault_status(ctx: Context) -> str:
+        """Check whether initial ingestion has finished and the file watcher is active"""
+        return _rag(ctx).status()

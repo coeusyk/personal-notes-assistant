@@ -76,6 +76,7 @@ class ObsidianRAGServer:
         self.observer = None
         self.loop = None  # Store the main event loop
         self._ingest_task: asyncio.Task | None = None
+        self._initial_ingest_done = False
 
     async def initialize(self):
         """Initialize all components"""
@@ -92,13 +93,21 @@ class ObsidianRAGServer:
         # 260+ files), which blew past MCP clients' 60s connect timeout when
         # awaited here. Run it in the background so the server can start
         # answering requests immediately; searches just miss recent edits
-        # until this finishes.
+        # until this finishes. status() exposes _initial_ingest_done so
+        # callers aren't left guessing.
         self._ingest_task = asyncio.create_task(self._initial_ingest())
 
     async def _initial_ingest(self):
         logger.info("Performing initial full ingestion of the vault...")
         await self.ingest_all_notes()
+        self._initial_ingest_done = True
         logger.info("Initial ingestion complete.")
+
+    def status(self) -> str:
+        """Report initial-ingest and file-watcher state, for callers deciding whether search results might be stale."""
+        ingest = "complete" if self._initial_ingest_done else "in progress (search results may miss recent edits)"
+        watcher = "active" if self.observer else "unavailable (live edits won't be picked up automatically; use ingest_notes/update_note)"
+        return f"Initial ingest: {ingest}\nFile watcher: {watcher}"
 
     async def _setup_milvus(self):
         """Setup Milvus connection and collection"""
@@ -190,7 +199,8 @@ class ObsidianRAGServer:
             self.observer.start()
             logger.info("File watcher started")
         except OSError as e:
-            # ponytail: some filesystems (e.g. WSL DrvFs/9p mounts) don't support inotify
+            # ponytail: some filesystems (e.g. WSL DrvFs/9p mounts) don't support inotify.
+            # status() surfaces this so callers know to fall back to ingest_notes/update_note.
             logger.warning(f"File watcher unavailable on this filesystem, live updates disabled: {e}")
             self.observer = None
 
