@@ -149,10 +149,18 @@ To use OpenAI's models, you will need an API key.
 
 ## Running the Server
 
-With the services running and your `.env` file configured, start the main application:
+**Milvus must already be running** (`docker-compose up -d`) before you start the server — it connects to Milvus on startup and will fail if it isn't reachable.
+
+With Milvus up and your `.env` file configured, start the main application:
 
 ```bash
 python main.py
+```
+
+If you installed the project with `uv pip install -e .`, the `run-obsidian-rag` console script is also available and does the same thing:
+
+```bash
+run-obsidian-rag
 ```
 
 Keep this process running while you interact with it from clients such as Claude Desktop.
