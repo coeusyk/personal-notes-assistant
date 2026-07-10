@@ -24,3 +24,11 @@ run-obsidian-rag = "main:main"
 
 [tool.setuptools]
 py-modules = ["main", "mcp_handlers", "rag_server"]
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu128" }]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true

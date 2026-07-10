@@ -75,6 +75,7 @@ class ObsidianRAGServer:
         # File watcher:
         self.observer = None
         self.loop = None  # Store the main event loop
+        self._ingest_task: asyncio.Task | None = None
 
     async def initialize(self):
         """Initialize all components"""
@@ -85,12 +86,19 @@ class ObsidianRAGServer:
         await self._setup_embedding_model()
         await self._setup_file_watcher()
 
-        # Performing an initial full ingestion on startup
+        logger.info("ObsidianRAG server initialized and ready.")
+
+        # ponytail: full-vault ingest can take well over a minute (CUDA init +
+        # 260+ files), which blew past MCP clients' 60s connect timeout when
+        # awaited here. Run it in the background so the server can start
+        # answering requests immediately; searches just miss recent edits
+        # until this finishes.
+        self._ingest_task = asyncio.create_task(self._initial_ingest())
+
+    async def _initial_ingest(self):
         logger.info("Performing initial full ingestion of the vault...")
         await self.ingest_all_notes()
         logger.info("Initial ingestion complete.")
-
-        logger.info("ObsidianRAG server initialized and ready.")
 
     async def _setup_milvus(self):
         """Setup Milvus connection and collection"""
@@ -271,6 +279,14 @@ class ObsidianRAGServer:
 
     async def _update_note(self, file_path: str | Path, flush: bool = True):
         """Update a single note in the vector database"""
+        # ponytail: embedding_model.encode() and every pymilvus call here are
+        # synchronous/blocking (no real await), so running this inline on the
+        # asyncio event loop stalls it for the whole call — including the
+        # stdio transport's read loop, which made the MCP server unresponsive
+        # to requests during ingestion. Offload to a thread so the loop stays free.
+        await asyncio.to_thread(self._update_note_sync, file_path, flush)
+
+    def _update_note_sync(self, file_path: str | Path, flush: bool = True):
         try:
             file_path = Path(file_path)
             collection = self.collection
@@ -281,7 +297,7 @@ class ObsidianRAGServer:
             if not file_path.exists():
                 # File deleted, remove from database
                 relative_path = file_path.relative_to(self.vault_path).as_posix()
-                await self._remove_note(relative_path)
+                self._remove_note_sync(relative_path)
                 return
 
             note_data = self._parse_markdown_file(file_path)
@@ -301,7 +317,7 @@ class ObsidianRAGServer:
 
             # Remove existing entries for this file, if any (nothing to remove for a brand-new file)
             if existing:
-                await self._remove_note(note_data['file_path'])
+                self._remove_note_sync(note_data['file_path'])
 
             # Chunk content and create embeddings
             chunks = self._chunk_content(note_data['content'])
@@ -347,6 +363,9 @@ class ObsidianRAGServer:
 
     async def _remove_note(self, file_path: str):
         """Remove note from vector database"""
+        await asyncio.to_thread(self._remove_note_sync, file_path)
+
+    def _remove_note_sync(self, file_path: str):
         try:
             collection = self.collection
             if collection is None:
@@ -379,7 +398,7 @@ class ObsidianRAGServer:
                     logger.error(f"Failed to process {file_path}: {e}")
                     continue
 
-            self.collection.flush()
+            await asyncio.to_thread(self.collection.flush)
 
         logger.info(f"Completed ingesting {len(md_files)} files")
 
